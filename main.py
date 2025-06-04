@@ -221,9 +221,22 @@ async def start_server():
 
     host = "0.0.0.0"  # Listen on all available interfaces
     port = int(os.getenv("PORT", 8000))  # Use Render's PORT or default to 8000
-    
+
+    async def health_check_handler(path, request_headers):
+        if path == "/health":
+            # Return a simple HTTP 200 OK response
+            # The body can be minimal or empty
+            # Content-Type helps browsers/clients understand it's plain text
+            headers = websockets.http11.Headers()
+            headers["Content-Type"] = "text/plain"
+            headers["Content-Length"] = "2"
+            # Return status code, headers, and body
+            return (websockets.http11.OK, headers, b"OK") 
+        return None # Let websockets library handle other paths for WebSocket connections
+
     logger.info(f"Starting WebSocket server on ws://{host}:{port}")
-    async with websockets.serve(client_connection_handler, host, port):
+    # Pass the health_check_handler to process_request
+    async with websockets.serve(client_connection_handler, host, port, process_request=health_check_handler):
         await asyncio.Future()  # Run forever until interrupted
 
 if __name__ == "__main__":
