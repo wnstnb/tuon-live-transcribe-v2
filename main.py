@@ -82,16 +82,39 @@ def assemblyai_processor_thread(
 
     def on_turn(self_client: StreamingClient, event: TurnEvent):
         transcript_text = event.transcript
-        logger.info(f"AAI Transcript for {websocket_connection.remote_address}: {transcript_text} (end_of_turn: {event.end_of_turn})")
-        send_message_to_client_threadsafe({
+        
+        # Log every turn event received from AssemblyAI for debugging
+        logger.info(
+            f"AAI TurnEvent for {websocket_connection.remote_address}: "
+            f"Text='{transcript_text}', "
+            f"EndOfTurn={event.end_of_turn}, "
+            f"TurnIsFormatted={event.turn_is_formatted}"
+        )
+
+        message_to_client = {
             "type": "transcript_update",
             "text": transcript_text,
-            "is_final": event.end_of_turn # Assuming end_of_turn implies final for that segment
-        })
-        # Original logic for set_params can be re-evaluated if needed for specific use cases.
-        # if event.end_of_turn and not event.turn_is_formatted:
-        #     params = StreamingSessionParameters(format_turns=True)
-        #     self_client.set_params(params) # This would be self_client.set_params if client instance allows
+            # Other relevant event attributes like 'confidence' could be added here if needed by the client
+        }
+
+        if event.end_of_turn:
+            if event.turn_is_formatted:
+                # This is a formatted, final transcript for the utterance.
+                message_to_client["is_final"] = True
+                logger.info(f"Sending FORMATTED FINAL transcript to client: '{transcript_text}'")
+                send_message_to_client_threadsafe(message_to_client)
+            else:
+                # This is an unformatted, final transcript.
+                # We will NOT send this to the client with is_final: true, 
+                # as we expect a formatted version to follow because format_turns=True.
+                logger.info(f"Received UNFORMATTED FINAL transcript. Waiting for formatted version: '{transcript_text}'")
+                # Optionally, send as an interim update if the client should display it while waiting for formatting:
+                # message_to_client["is_final"] = False 
+                # send_message_to_client_threadsafe(message_to_client)
+        else:
+            # This is an interim transcript
+            message_to_client["is_final"] = False
+            send_message_to_client_threadsafe(message_to_client)
 
     def on_terminated(self_client: StreamingClient, event: TerminationEvent):
         logger.info(f"AAI Session terminated for {websocket_connection.remote_address}: {event.audio_duration_seconds}s audio processed")
@@ -115,6 +138,7 @@ def assemblyai_processor_thread(
             StreamingParameters(
                 sample_rate=16000,  # Ensure client sends audio at this rate
                 format_turns=True,
+                end_utterance_silence_threshold=1500  # Example: 1200ms (1.2 seconds) of silence
             )
         )
         logger.info(f"AssemblyAI client connected for {websocket_connection.remote_address}. Starting stream processing.")
@@ -195,8 +219,8 @@ async def start_server():
         logger.critical("ASSEMBLYAI_API_KEY is not set. Cannot start server.")
         return
 
-    host = "localhost"
-    port = 8765  # You can change this port
+    host = "0.0.0.0"  # Listen on all available interfaces
+    port = int(os.getenv("PORT", 8000))  # Use Render's PORT or default to 8000
     
     logger.info(f"Starting WebSocket server on ws://{host}:{port}")
     async with websockets.serve(client_connection_handler, host, port):
