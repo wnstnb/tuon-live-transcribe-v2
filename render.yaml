@@ -6,6 +6,7 @@ services:
     # dockerContext: . # Defaults to root, so this is optional
     plan: free # Or your preferred plan (e.g., starter)
     region: oregon # Or your preferred region (e.g., frankfurt, ohio, singapore)
+    healthCheckPath: /healthz # Explicitly set the health check path
     envVars:
       - key: ASSEMBLYAI_API_KEY
         # Important: Set the VALUE for this key in the Render dashboard

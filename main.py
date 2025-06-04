@@ -5,7 +5,7 @@ import logging
 import os
 import json
 import threading
-from typing import Type, AsyncGenerator
+from typing import Type, AsyncGenerator, Tuple, Dict, Optional, List
 
 import assemblyai as aai
 from assemblyai.streaming.v3 import (
@@ -214,6 +214,12 @@ async def client_connection_handler(websocket: websockets.server.ServerProtocol,
         logger.info(f"Client handler for {client_address} finished.")
 
 
+async def health_check_handler(path: str, request_headers: websockets.datastructures.Headers) -> Optional[Tuple[int, List[Tuple[str, str]], bytes]]:
+    if path == "/healthz":
+        logger.info(f"Health check request received for {path}")
+        return 200, [("Content-Type", "text/plain")], b"OK"
+    return None # Proceed with WebSocket handling for other paths
+
 async def start_server():
     if not api_key:
         logger.critical("ASSEMBLYAI_API_KEY is not set. Cannot start server.")
@@ -221,22 +227,14 @@ async def start_server():
 
     host = "0.0.0.0"  # Listen on all available interfaces
     port = int(os.getenv("PORT", 8000))  # Use Render's PORT or default to 8000
-
-    async def health_check_handler(path, request_headers):
-        if path == "/health":
-            # Return a simple HTTP 200 OK response
-            # The body can be minimal or empty
-            # Content-Type helps browsers/clients understand it's plain text
-            headers = websockets.http11.Headers()
-            headers["Content-Type"] = "text/plain"
-            headers["Content-Length"] = "2"
-            # Return status code, headers, and body
-            return (websockets.http11.OK, headers, b"OK") 
-        return None # Let websockets library handle other paths for WebSocket connections
-
-    logger.info(f"Starting WebSocket server on ws://{host}:{port}")
-    # Pass the health_check_handler to process_request
-    async with websockets.serve(client_connection_handler, host, port, process_request=health_check_handler):
+    
+    logger.info(f"Starting WebSocket server on ws://{host}:{port} with /healthz endpoint")
+    async with websockets.serve(
+        client_connection_handler, 
+        host, 
+        port, 
+        process_request=health_check_handler
+    ):
         await asyncio.Future()  # Run forever until interrupted
 
 if __name__ == "__main__":
