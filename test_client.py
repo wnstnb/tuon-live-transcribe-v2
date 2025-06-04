@@ -9,7 +9,7 @@ import signal # For graceful shutdown
 # Configure logging for the client
 logging.basicConfig(level=logging.INFO, format='%(asctime)s CLIENT: %(levelname)s %(message)s')
 
-GATEWAY_URL = "ws://localhost:8765"
+GATEWAY_URL = "ws://localhost:8000"
 
 # PyAudio Configuration - must match AssemblyAI expectations
 FORMAT = pyaudio.paInt16  # 16-bit PCM

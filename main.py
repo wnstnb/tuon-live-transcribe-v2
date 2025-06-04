@@ -11,6 +11,7 @@ import json
 import threading
 import signal # For SIGTERM handling
 from typing import Type, AsyncGenerator, Tuple, Dict, Optional, List, Sequence, Callable
+from urllib.parse import urlparse, parse_qs # New import
 
 import assemblyai as aai
 from assemblyai.streaming.v3 import (
@@ -29,6 +30,15 @@ from dotenv import load_dotenv
 load_dotenv()
 
 api_key = os.getenv("ASSEMBLYAI_API_KEY")
+EXPECTED_AUTH_TOKEN = os.getenv("WEBSOCKET_SECRET_TOKEN")
+ALLOWED_ORIGINS_STR = os.getenv("ALLOWED_ORIGINS") # Read the new env var
+
+# Parse ALLOWED_ORIGINS_STR into a list
+if ALLOWED_ORIGINS_STR:
+    allowed_origins_list = [origin.strip() for origin in ALLOWED_ORIGINS_STR.split(',')]
+else:
+    allowed_origins_list = [] # Default to empty list if not set, effectively blocking all origins if not configured
+    logger.warning("ALLOWED_ORIGINS environment variable is not set. WebSocket connections might be blocked by default origin policy if not explicitly configured.")
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -220,16 +230,46 @@ async def client_connection_handler(websocket: websockets.server.ServerProtocol,
 
 
 async def process_http_request(path: str, request_headers: websockets.datastructures.Headers) -> Optional[Tuple[int, List[Tuple[str, str]], bytes]]:
-    logger.info(f"HTTP Request Received by process_http_request: Path='{path}', All Headers='{request_headers}'")
+    logger.info(f"HTTP Request Received by process_http_request: Path='{path}'")
 
-    if path == "/healthz":
+    parsed_path = urlparse(path)
+    query_params = parse_qs(parsed_path.query)
+
+    if parsed_path.path == "/healthz": # Check against parsed_path.path
         logger.info(f"Health check path '/healthz' matched in process_http_request. Responding 200 OK.")
-        # For HEAD requests, the body is ignored by the client, but sending it is fine.
-        # For GET requests, this body will be sent.
         return (200, [("Content-Type", "text/plain"), ("Connection", "close")], b"OK")
     
-    logger.debug(f"Path '{path}' not /healthz in process_http_request, proceeding to WebSocket handshake attempt.")
-    return None # Proceed with WebSocket handling for other paths
+    # Authentication check for WebSocket connections (all other paths)
+    if not EXPECTED_AUTH_TOKEN:
+        logger.error("WEBSOCKET_SECRET_TOKEN is not set on the server. Denying all WebSocket connections for security.")
+        return (500, [("Content-Type", "text/plain"), ("Connection", "close")], b"Internal Server Error: Missing WebSocket token configuration")
+
+    auth_header_name = "X-Auth-Token"
+    received_token_header = request_headers.get(auth_header_name)
+    
+    token_validated = False
+
+    if received_token_header == EXPECTED_AUTH_TOKEN:
+        logger.info(f"Authentication successful via header for path '{parsed_path.path}'.")
+        token_validated = True
+    else:
+        if received_token_header is not None: # Log if a header was present but incorrect
+             logger.warning(f"Invalid token received in '{auth_header_name}' header for path '{parsed_path.path}'. Checking query parameters.")
+
+        # Fallback to check query parameter if header is not present or invalid
+        received_token_query = query_params.get('auth_token', [None])[0]
+        if received_token_query == EXPECTED_AUTH_TOKEN:
+            logger.info(f"Authentication successful via query parameter for path '{parsed_path.path}'.")
+            token_validated = True
+        elif received_token_query is not None: # Log if a query token was present but incorrect
+            logger.warning(f"Invalid token received in 'auth_token' query parameter for path '{parsed_path.path}'.")
+
+
+    if token_validated:
+        return None  # Proceed with WebSocket handling
+    else:
+        logger.warning(f"Authentication failed for path '{parsed_path.path}'. Missing or incorrect token in header and query parameter.")
+        return (403, [("Content-Type", "text/plain"), ("Connection", "close")], b"Forbidden: Invalid or missing authentication token")
 
 async def start_server():
     if not api_key:
@@ -240,6 +280,7 @@ async def start_server():
     port = int(os.getenv("PORT", 8000))
     
     logger.info(f"Starting WebSocket server on ws://{host}:{port} with /healthz endpoint via process_request")
+    logger.info(f"Allowed origins: {allowed_origins_list if allowed_origins_list else 'Not explicitly set, default policy applies'}") # Log allowed origins
     
     # Get the current event loop for signal handling
     loop = asyncio.get_running_loop()
@@ -248,8 +289,9 @@ async def start_server():
         client_connection_handler, 
         host, 
         port,
-        process_request=process_http_request # Use the simplified HTTP request processor
+        process_request=process_http_request, # Use the simplified HTTP request processor
         # create_protocol argument is removed
+        origins=allowed_origins_list if allowed_origins_list else None # Add the origins parameter. Pass None if empty to let websockets use its default (usually restrictive).
     ) as server:
         # Add SIGTERM handler for graceful shutdown (as per Render docs)
         # types.FrameType is not directly available, signal.Handlers type hint is complex
