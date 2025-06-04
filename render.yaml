@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: tuon-transcriber # You can change this name
+    env: docker
+    dockerfilePath: ./Dockerfile
+    # dockerContext: . # Defaults to root, so this is optional
+    plan: free # Or your preferred plan (e.g., starter)
+    region: oregon # Or your preferred region (e.g., frankfurt, ohio, singapore)
+    envVars:
+      - key: ASSEMBLYAI_API_KEY
+        # Important: Set the VALUE for this key in the Render dashboard
+        # Leaving 'value' out or setting 'sync: false' means it's managed in the dashboard.
+        sync: false
+    # We are intentionally omitting healthCheckPath to see if it avoids the HTTP health check errors.
+    # If issues persist, we might need to investigate further options for health checks with Docker web services.
+    # autoDeploy: true # Defaults to true, deploys on push to the main branch 
