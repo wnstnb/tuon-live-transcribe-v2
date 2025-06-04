@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 # One queue per connection, so defined inside client_handler_wrapper
 
 # Custom Server Connection Protocol to handle HEAD requests for health checks
-class HealthCheckFriendlyServerConnection(websockets.asyncio.server.ServerConnection):
+class HealthCheckFriendlyServerConnection(websockets.server.ServerConnection):
     async def read_http_request(self) -> Tuple[str, websockets.datastructures.Headers]:
         """
         Override to allow HEAD /healthz to pass initial parsing,
