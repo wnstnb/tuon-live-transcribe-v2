@@ -9,7 +9,8 @@ RUN apt-get update && \
     libportaudio2 \
     portaudio19-dev \
     ffmpeg \
-    git && \
+    git \
+    build-essential && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
